@@ -109,9 +109,7 @@ main (int argc, char **argv)
       if (!g_spawn_sync (NULL,
                          child_argv,
                          NULL,
-                         G_SPAWN_SEARCH_PATH        |
-                         G_SPAWN_STDOUT_TO_DEV_NULL |
-                         G_SPAWN_STDERR_TO_DEV_NULL,
+                         G_SPAWN_SEARCH_PATH,
                          NULL, NULL, NULL, NULL, &status, &error))
         {
           g_warning ("Failed to spawn %s: %s", child_argv[0], error->message);
