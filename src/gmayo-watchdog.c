@@ -134,12 +134,28 @@ main (int argc, char **argv)
               continue;
             }
         }
-      else if (WIFSIGNALED (status) && GMAYOW_DBG_WANT (SIGNALS))
+      else if (WIFSIGNALED (status))
         {
-          gint c = WTERMSIG (status);
+          gint c;
+          gboolean quit = FALSE;
 
-          g_message ("%s exited due to signal %d, re-spawning.", child_argv[0]);
-          continue;
+          switch ((c = WTERMSIG (status)))
+            {
+            case SIGTERM:
+            case SIGKILL:
+              if (GMAYOW_DBG_WANT (SIGNALS))
+                g_message ("%s exited due to signal %d, quitting.",
+                           child_argv[0]);
+              quit = TRUE;
+              break;
+            default:
+              if (GMAYOW_DBG_WANT (SIGNALS))
+                g_message ("%s exited due to signal %d, re-spawning.",
+                           child_argv[0]);
+            }
+
+          if (quit)
+            break;
         }
     }
 
