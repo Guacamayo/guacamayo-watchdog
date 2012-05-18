@@ -56,6 +56,9 @@ main (int argc, char **argv)
 {
   GError          *error      = NULL;
   gboolean         keep_alive = FALSE;
+  char           **child_argv = NULL;
+  gint             i;
+  gint             child_off  = 1; /* offset where the child argv starts */
   GOptionContext  *opt_ctx;
   GOptionEntry     opts[] = {
     {
@@ -76,31 +79,42 @@ main (int argc, char **argv)
     g_error ("Failed to parse options: %s", error->message);
 
   /*
-   * After our own options have been parsed, the next option should be '--'
-   * followed by the program to spawn + its options.
+   * At least two arguments have to be left (our own name being the first)
    */
-  if (argc < 3 || !argv[2] || !*argv[2] ||
-      !(argv[1][0] == '-' && argv[1][1] == '-'))
-    {
-      g_error ("No child commandline supplied, quitting!");
-    }
+  if (argc < 2)
+    g_error ("No child commandline supplied, quitting!");
+
+  /*
+   * After our own options have been parsed, the next option might be '--',
+   * depending on what options were specified for the child program, skip this.
+   */
+  if (argv[1][0] == '-' && argv[1][1] == '-')
+    child_off++;
+
+  /*
+   * Need a NULL-terminated copy for spawn, removing 1 or 2 elements
+   */
+  child_argv = g_malloc0 (sizeof (char*) * (argc - (child_off - 1)));
+
+  for (i = child_off; i < argc; ++i)
+    child_argv[i-child_off] = argv[i];
 
   while (1)
     {
       gint status = 0;
 
       if (GMAYOW_DBG_WANT (STATUS))
-        g_message ("Spawning %s.", argv[2]);
+        g_message ("Spawning %s.", child_argv[0]);
 
       if (!g_spawn_sync (NULL,
-                         argv + 2,
+                         child_argv,
                          NULL,
                          G_SPAWN_SEARCH_PATH        |
                          G_SPAWN_STDOUT_TO_DEV_NULL |
                          G_SPAWN_STDERR_TO_DEV_NULL,
                          NULL, NULL, NULL, NULL, &status, &error))
         {
-          g_warning ("Failed to spawn %s: %s", argv[2], error->message);
+          g_warning ("Failed to spawn %s: %s", child_argv[0], error->message);
           exit (-1);
         }
 
@@ -111,14 +125,14 @@ main (int argc, char **argv)
           if (!(c = WEXITSTATUS (status)) && !keep_alive)
             {
               if (GMAYOW_DBG_WANT (STATUS))
-                g_message ("%s exited normally, quitting.", argv[2]);
+                g_message ("%s exited normally, quitting.", child_argv[0]);
               break;
             }
           else
             {
               if (GMAYOW_DBG_WANT (STATUS))
                 g_message ("%s exited with status %d, re-spawning.",
-                         argv[2]);
+                         child_argv[0]);
               continue;
             }
         }
@@ -126,8 +140,10 @@ main (int argc, char **argv)
         {
           gint c = WTERMSIG (status);
 
-          g_message ("%s exited due to signal %d, re-spawning.", argv[2]);
+          g_message ("%s exited due to signal %d, re-spawning.", child_argv[0]);
           continue;
         }
     }
+
+  g_free (child_argv);
 }
