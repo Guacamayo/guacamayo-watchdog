@@ -21,6 +21,7 @@
 #include <glib.h>
 #include <sys/wait.h>
 #include <stdlib.h>
+#include <time.h>
 
 #define GMAYOW_DBG_WANT(x) (gmayow_dbg & GMAYOW_DBG_##x)
 
@@ -59,6 +60,8 @@ main (int argc, char **argv)
   char           **child_argv = NULL;
   gint             i;
   gint             child_off  = 1; /* offset where the child argv starts */
+  gint             retries = 5;
+  time_t           launch_time;
   GOptionContext  *opt_ctx;
   GOptionEntry     opts[] = {
     {
@@ -101,10 +104,14 @@ main (int argc, char **argv)
 
   while (1)
     {
-      gint status = 0;
+      gint     status = 0;
+      time_t   exit_time;
+      gboolean quit = FALSE;
 
       if (GMAYOW_DBG_WANT (STATUS))
         g_message ("Spawning %s.", child_argv[0]);
+
+      launch_time = time (NULL);
 
       if (!g_spawn_sync (NULL,
                          child_argv,
@@ -116,6 +123,17 @@ main (int argc, char **argv)
           exit (-1);
         }
 
+      exit_time = time (NULL);
+
+      /*
+       * If we have been up for more than, say, 3 minutes, reset the retry
+       * counter.
+       */
+      if ((exit_time - launch_time) > 3*60)
+        retries = 5;
+      else
+        retries--;
+
       if (WIFEXITED (status))
         {
           gint c;
@@ -123,21 +141,19 @@ main (int argc, char **argv)
           if (!(c = WEXITSTATUS (status)) && !keep_alive)
             {
               if (GMAYOW_DBG_WANT (STATUS))
-                g_message ("%s exited normally, quitting.", child_argv[0]);
-              break;
+                g_message ("%s exited normally.", child_argv[0]);
+
+              quit = TRUE;
             }
           else
             {
               if (GMAYOW_DBG_WANT (STATUS))
-                g_message ("%s exited with status %d, re-spawning.",
-                         child_argv[0]);
-              continue;
+                g_message ("%s exited with status %d.", child_argv[0], c);
             }
         }
       else if (WIFSIGNALED (status))
         {
           gint c;
-          gboolean quit = FALSE;
 
           switch ((c = WTERMSIG (status)))
             {
@@ -145,18 +161,36 @@ main (int argc, char **argv)
             case SIGKILL:
               if (GMAYOW_DBG_WANT (SIGNALS))
                 g_message ("%s exited due to signal %d, quitting.",
-                           child_argv[0]);
+                           child_argv[0], c);
               quit = TRUE;
               break;
             default:
               if (GMAYOW_DBG_WANT (SIGNALS))
-                g_message ("%s exited due to signal %d, re-spawning.",
-                           child_argv[0]);
+                g_message ("%s exited due to signal %d.", child_argv[0], c);
             }
-
-          if (quit)
-            break;
         }
+
+      if (!quit)
+        {
+          if (retries > 0)
+            {
+              if (GMAYOW_DBG_WANT (SIGNALS))
+                g_message ("Re-spawning %s, remaining attempts: %d",
+                           child_argv[0], retries);
+            }
+          else
+            {
+              if (GMAYOW_DBG_WANT (SIGNALS))
+                g_message ("max retry count reached, quitting");
+
+              quit = TRUE;
+            }
+        }
+
+      if (quit)
+        break;
+      else
+        g_usleep (500 * 1000);
     }
 
   g_free (child_argv);
